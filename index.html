@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Creador de equipos Pokémon reloaded</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2 { color: #2c3e50; text-align: center; }
+        .setup-section, .team-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        label { display: block; font-weight: bold; margin-bottom: 5px; color: #34495e; }
+        button {
+            background-color: #3498db; color: white; border: none; padding: 12px 20px;
+            font-size: 16px; border-radius: 5px; cursor: pointer; transition: background 0.3s;
+            display: block; width: 100%; font-weight: bold; margin-top: 10px;
+        }
+        button:hover { background-color: #2980b9; }
+        .pokemon-card {
+            background: #ecf0f1; padding: 20px; margin-bottom: 20px;
+            border-radius: 6px; border-left: 5px solid #e74c3c;
+        }
+        .pokemon-title { font-size: 18px; font-weight: bold; color: #c0392b; margin-bottom: 15px; }
+        
+        /* Layout con espacio para el Sprite */
+        .card-layout { display: flex; gap: 20px; align-items: center; }
+        .sprite-container { 
+            width: 100px; height: 100px; 
+            background: #fff; border: 2px dashed #bdc3c7; 
+            border-radius: 8px; display: flex; align-items: center; 
+            justify-content: center; overflow: hidden; flex-shrink: 0;
+        }
+        .sprite-img { width: 100%; height: 100%; object-fit: contain; }
+        
+        .grid-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; flex-grow: 1; }
+        .full-width { grid-column: span 2; }
+        .movimientos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        
+        input[type="text"], select {
+            width: 100%; padding: 10px; box-sizing: border-box;
+            border: 1px solid #ccc; border-radius: 4px; font-size: 14px;
+            background-color: white;
+        }
+        #btnExportar { background-color: #2ecc71; margin-top: 25px; }
+        #btnExportar:hover { background-color: #27ae60; }
+        .loading-screen { text-align: center; padding: 40px; font-size: 18px; font-weight: bold; color: #34495e; }
+        .info-nota {
+            background-color: #e8f4f8;
+            border-left: 4px solid #2980b9;
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Creador de equipos Pokémon reloaded</h1>
+
+    <div class="setup-section" id="seccionCarga">
+        <div class="loading-screen" id="statusText">
+            ⏳ Descargando bases de datos desde GitHub... Por favor espera.
+        </div>
+    </div>
+
+    <datalist id="listaSugerenciasPokemon"></datalist>
+    <datalist id="listaSugerenciasObjetos"></datalist>
+    <datalist id="listaSugerenciasMovimientos"></datalist>
+
+    <div class="team-section" id="teamSection" style="display:none;">
+        <h2>Modifica o añade tus Pokémon</h2>
+        <div class="info-nota">
+            <strong>Nota:</strong> Las formas repetidas ahora incluyen su ID en la lista desplegable (ej. <em>Ogerpon (ID: 2415)</em>) para poder cargar sus respectivos sprites animados de manera independiente.
+        </div>
+        <div id="contenedorEquipo"></div>
+        <button id="btnExportar" onclick="exportarEquipoIds()">Generar Documento de Texto Completo</button>
+    </div>
+
+    <script>
+        // URLs en formato Raw de datos de texto
+        const URL_POKEMON = "https://raw.githubusercontent.com/gatocosmico069-web/Reloaded/main/Lista%20de%20Pok%C3%A9mon%20(Por%20ID)%20-%201.9.1.txt";
+        const URL_OBJETOS = "https://raw.githubusercontent.com/gatocosmico069-web/Reloaded/main/Lista%20de%20Objetos%20(Por%20ID)%20-%201.9.1.txt";
+        const URL_MOVIMIENTOS = "https://raw.githubusercontent.com/gatocosmico069-web/Reloaded/main/Lista%20de%20Movimientos%20(Por%20ID)%20-%201.9.1.txt";
+
+        // Direcciones base para las imágenes RAW de GitHub
+        const REPO_SPRITES_1_1000 = "https://raw.githubusercontent.com/gatocosmico069-web/sprites-reloaded/main/";
+        const REPO_SPRITES_RESTO = "https://raw.githubusercontent.com/gatocosmico069-web/sprites-reloaded-2/main/";
+
+        // Diccionarios globales mapeados
+        let diccPokemon = {}; // Guardará combinaciones limpias y mapeos específicos
+        let diccObjetos = {};
+        let diccMovimientos = {};
+
+        let nombreOriginalPokemon = {};
+        let nombreOriginalObjetos = {};
+        let nombreOriginalMovimientos = {};
+
+        window.addEventListener('DOMContentLoaded', cargarDatosDesdeGitHub);
+
+        async function cargarDatosDesdeGitHub() {
+            try {
+                const [resPkm, resObj, resMov] = await Promise.all([
+                    fetch(URL_POKEMON).then(r => { if(!r.ok) throw new Error("Error Pokémon"); return r.text(); }),
+                    fetch(URL_OBJETOS).then(r => { if(!r.ok) throw new Error("Error Objetos"); return r.text(); }),
+                    fetch(URL_MOVIMIENTOS).then(r => { if(!r.ok) throw new Error("Error Movimientos"); return r.text(); })
+                ]);
+
+                procesarListaPokemon(resPkm);
+                procesarListaEstandar(resObj, diccObjetos, nombreOriginalObjetos, 'listaSugerenciasObjetos');
+                procesarListaEstandar(resMov, diccMovimientos, nombreOriginalMovimientos, 'listaSugerenciasMovimientos');
+
+                mostrarFormularioEquipo();
+
+            } catch (error) {
+                console.error(error);
+                document.getElementById('statusText').innerHTML = `
+                    ❌ <strong>Error al cargar los datos desde GitHub.</strong><br><br>
+                    Asegúrate de estar conectado a Internet y de que el repositorio de GitHub siga siendo público.
+                `;
+            }
+        }
+
+        // Procesador específico para Pokémon que evita colisiones por formas con nombres idénticos
+        function procesarListaPokemon(texto) {
+            const datalist = document.getElementById('listaSugerenciasPokemon');
+            datalist.innerHTML = ""; 
+
+            const regex = /ID:\s*(\d+)\s*-\s*(.+)/g;
+            let coincidencia;
+            const fragmento = document.createDocumentFragment();
+
+            // Mapeo temporal para contar cuántas veces se repite un nombre de Pokémon
+            let conteoNombres = {};
+            let registros = [];
+
+            while ((coincidencia = regex.exec(texto)) !== null) {
+                const id = coincidencia[1].trim();
+                const nombreOriginal = coincidencia[2].trim();
+                const nombreMinus = nombreOriginal.toLowerCase();
+
+                conteoNombres[nombreMinus] = (conteoNombres[nombreMinus] || 0) + 1;
+                registros.push({ id, nombreOriginal, nombreMinus });
+            }
+
+            // Segunda pasada para registrar y construir las opciones visuales del Datalist
+            registros.forEach(reg => {
+                nombreOriginalPokemon[reg.id] = reg.nombreOriginal;
+
+                let valorOpcion = reg.nombreOriginal;
+                // Si el nombre se repite en el archivo, le concatenamos su ID para diferenciar las formas
+                if (conteoNombres[reg.nombreMinus] > 1) {
+                    valorOpcion = `${reg.nombreOriginal} (ID: ${reg.id})`;
+                }
+
+                // El diccionario indexará tanto el nombre con ID como el nombre plano por seguridad
+                diccPokemon[valorOpcion.toLowerCase()] = reg.id;
+                diccPokemon[reg.id] = reg.id; // Permite buscar directamente escribiendo el número numérico
+
+                // Si no se ha indexado aún el plano básico, lo guardamos como alternativa por defecto
+                if (!diccPokemon[reg.nombreMinus]) {
+                    diccPokemon[reg.nombreMinus] = reg.id;
+                }
+
+                const opcion = document.createElement('option');
+                opcion.value = valorOpcion; 
+                fragmento.appendChild(opcion);
+            });
+
+            datalist.appendChild(fragmento);
+        }
+
+        // Procesador estándar para Objetos y Movimientos
+        function procesarListaEstandar(texto, diccionario, diccNombres, datalistId) {
+            const datalist = document.getElementById(datalistId);
+            datalist.innerHTML = ""; 
+
+            const regex = /ID:\s*(\d+)\s*-\s*(.+)/g;
+            let coincidencia;
+            const fragmento = document.createDocumentFragment();
+
+            while ((coincidencia = regex.exec(texto)) !== null) {
+                const id = coincidencia[1].trim();
+                const nombreOriginal = coincidencia[2].trim();
+                const nombreMinusculas = nombreOriginal.toLowerCase();
+                
+                diccionario[nombreMinusculas] = id;
+                diccNombres[id] = nombreOriginal; 
+
+                const opcion = document.createElement('option');
+                opcion.value = nombreOriginal; 
+                fragmento.appendChild(opcion);
+            }
+            datalist.appendChild(fragmento);
+        }
+
+        function mostrarFormularioEquipo() {
+            const contenedor = document.getElementById('contenedorEquipo');
+            contenedor.innerHTML = "";
+            const spriteDefecto = `${REPO_SPRITES_RESTO}0.gif`;
+
+            for (let i = 0; i < 6; i++) {
+                const card = document.createElement('div');
+                card.className = 'pokemon-card';
+                card.innerHTML = `
+                    <div class="pokemon-title">Pokémon #${i + 1}</div>
+                    <div class="card-layout">
+                        <div class="sprite-container">
+                            <img id="pkm_sprite_${i}" class="sprite-img" src="${spriteDefecto}" alt="Sprite">
+                        </div>
+                        
+                        <div class="grid-inputs">
+                            <div>
+                                <label>Nombre del Pokémon:</label>
+                                <input type="text" id="pkm_name_${i}" list="listaSugerenciasPokemon" placeholder="Escribe el nombre o forma del Pokémon" oninput="actualizarSprite(${i})">
+                            </div>
+                            <div>
+                                <label>Sexo:</label>
+                                <select id="pkm_sex_${i}">
+                                    <option value="Macho" selected>Macho</option>
+                                    <option value="Hembra">Hembra</option>
+                                    <option value="Sin Género">Sin Género</option>
+                                </select>
+                            </div>
+                            <div class="full-width">
+                                <label>Habilidad (Escribe manualmente):</label>
+                                <input type="text" id="pkm_hab_${i}" placeholder="Ej. Vista Lince">
+                            </div>
+                            <div class="full-width">
+                                <label>Objeto:</label>
+                                <input type="text" id="pkm_obj_${i}" list="listaSugerenciasObjetos" placeholder="Ej. Restos">
+                            </div>
+                            <div class="full-width">
+                                <label>Movimientos:</label>
+                                <div class="movimientos-grid">
+                                    <input type="text" id="pkm_mov_${i}_0" list="listaSugerenciasMovimientos" placeholder="Movimiento 1">
+                                    <input type="text" id="pkm_mov_${i}_1" list="listaSugerenciasMovimientos" placeholder="Movimiento 2">
+                                    <input type="text" id="pkm_mov_${i}_2" list="listaSugerenciasMovimientos" placeholder="Movimiento 3">
+                                    <input type="text" id="pkm_mov_${i}_3" list="listaSugerenciasMovimientos" placeholder="Movimiento 4">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                contenedor.appendChild(card);
+            }
+
+            document.getElementById('seccionCarga').style.display = 'none';
+            document.getElementById('teamSection').style.display = 'block';
+        }
+
+        function actualizarSprite(index) {
+            const entrada = document.getElementById(`pkm_name_${index}`).value.trim().toLowerCase();
+            const imgElement = document.getElementById(`pkm_sprite_${index}`);
+            
+            if (!entrada) {
+                imgElement.src = `${REPO_SPRITES_RESTO}0.gif`;
+                return;
+            }
+
+            let idCalculado = null;
+
+            // 1. Validar si es un ID puramente numérico
+            if (/^\d+$/.test(entrada)) {
+                idCalculado = parseInt(entrada, 10);
+            } 
+            // 2. Extraer ID si el formato incluye la marca " (id: xxxx)" generada en las sugerencias
+            else if (entrada.includes('(id:')) {
+                const partes = entrada.split('(id:');
+                if (partes.length > 1) {
+                    const idString = partes[1].replace(')', '').trim();
+                    idCalculado = parseInt(idString, 10);
+                }
+            } 
+            // 3. Fallback directo sobre el diccionario indexado
+            else if (diccPokemon[entrada]) {
+                idCalculado = parseInt(diccPokemon[entrada], 10);
+            }
+
+            if (idCalculado === null || isNaN(idCalculado)) {
+                imgElement.src = `${REPO_SPRITES_RESTO}0.gif`;
+                return;
+            }
+
+            // Selección dinámica del repositorio basándose en el ID exacto
+            if (idCalculado >= 1 && idCalculado <= 1000) {
+                imgElement.src = `${REPO_SPRITES_1_1000}${idCalculado}.gif`;
+            } else {
+                imgElement.src = `${REPO_SPRITES_RESTO}${idCalculado}.gif`;
+            }
+        }
+
+        function obtenerId(nombre, diccionario, tipoError, pkmNum) {
+            const limpio = nombre.trim().toLowerCase();
+            if (!limpio) return "0"; 
+            
+            if (/^\d+$/.test(limpio)) {
+                return limpio;
+            }
+            if (diccionario[limpio]) {
+                return diccionario[limpio];
+            }
+            // Soporte extra al exportar si se dejó la extensión descriptiva " (ID: xxxx)" en el recuadro
+            if (limpio.includes('(id:')) {
+                const partes = limpio.split('(id:');
+                const idString = partes[1].replace(')', '').trim();
+                if (diccionario[idString]) return idString;
+            }
+
+            alert(`Error en el Pokémon #${pkmNum}: No se encontró el ${tipoError} "${nombre}" en tus archivos.`);
+            return null;
+        }
+
+        function obtenerLineaFormateada(id, diccNombres, valorPorDefecto) {
+            if (id === "0" || !id) {
+                return `0 - ${valorPorDefecto}`;
+            }
+            if (!diccNombres[id]) {
+                return `${id} - Manual/Desconocido`;
+            }
+            return `${id} - ${diccNombres[id]}`;
+        }
+
+        function exportarEquipoIds() {
+            let bloquesTexto = [];
+            let pokesProcesados = 0;
+
+            for (let i = 0; i < 6; i++) {
+                const pkmName = document.getElementById(`pkm_name_${i}`).value.trim();
+                
+                if (!pkmName) {
+                    continue;
+                }
+
+                const pkmId = obtenerId(pkmName, diccPokemon, "Pokémon", i + 1);
+                if (!pkmId) return;
+
+                const sexValue = document.getElementById(`pkm_sex_${i}`).value;
+                const habValue = document.getElementById(`pkm_hab_${i}`).value.trim();
+                const habTextoFinal = habValue ? habValue : "Ninguna";
+
+                const objName = document.getElementById(`pkm_obj_${i}`).value;
+                const objId = obtenerId(objName, diccObjetos, "Objeto", i + 1);
+                if (objId === null) return;
+
+                let movIds = [];
+                for (let j = 0; j < 4; j++) {
+                    const movName = document.getElementById(`pkm_mov_${i}_${j}`).value;
+                    const mId = obtenerId(movName, diccMovimientos, `Movimiento ${j + 1}`, i + 1);
+                    if (mId === null) return;
+                    movIds.push(mId);
+                }
+
+                const lineaPokemon = obtenerLineaFormateada(pkmId, nombreOriginalPokemon, "Pokémon Vacío");
+                const lineaObjeto = obtenerLineaFormateada(objId, nombreOriginalObjetos, "Sin Objeto");
+                const lineaM1 = obtenerLineaFormateada(movIds[0], nombreOriginalMovimientos, "Vacío");
+                const lineaM2 = obtenerLineaFormateada(movIds[1], nombreOriginalMovimientos, "Vacío");
+                const lineaM3 = obtenerLineaFormateada(movIds[2], nombreOriginalMovimientos, "Vacío");
+                const lineaM4 = obtenerLineaFormateada(movIds[3], nombreOriginalMovimientos, "Vacío");
+
+                const bloquePkm = [
+                    lineaPokemon,
+                    sexValue,
+                    habTextoFinal,
+                    lineaObjeto,
+                    lineaM1,
+                    lineaM2,
+                    lineaM3,
+                    lineaM4
+                ].join('\n');
+
+                bloquesTexto.push(bloquePkm);
+                pokesProcesados++;
+            }
+
+            if (pokesProcesados === 0) {
+                alert("Por favor, introduce al menos el nombre de 1 Pokémon para poder exportar.");
+                return;
+            }
+
+            const textoFinal = bloquesTexto.join('\n\n');
+            const blob = new Blob([textoFinal], { type: 'text/plain;charset=utf-8' });
+            const linkDescarga = document.createElement('a');
+            
+            linkDescarga.href = URL.createObjectURL(blob);
+            linkDescarga.download = 'equipo_pokemon.txt';
+            document.body.appendChild(linkDescarga);
+            linkDescarga.click();
+            document.body.removeChild(linkDescarga);
+        }
+    </script>
+</body>
+</html>
